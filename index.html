@@ -1446,6 +1446,7 @@
   let editingId = null;
   let syncTimer = null;
   let syncInFlight = false;
+  let syncQueued = false;   // a sync was requested while one was in flight; rerun after
   let lastSyncError = null;
 
   // ---------- local storage ----------
@@ -2084,7 +2085,12 @@
   const SYNC_COLLECTIONS = ['entries', 'courses', 'rounds', 'analyses'];
 
   async function runSync() {
-    if (syncInFlight) return;
+    // A save that lands while a sync is already in flight must still get
+    // pushed: its collection may have been PUT before the save happened, and
+    // the finishing sync stamps "synced just now" either way. Dropping the
+    // request here would strand that record on this device until some later
+    // trigger, so remember it and rerun once the in-flight sync completes.
+    if (syncInFlight) { syncQueued = true; return; }
     if (!getAuth()) return;
     const token = await getAccessToken();
     if (!token) { lastSyncError = 'Sign in to sync'; updateSyncStatus(); return; }
@@ -2131,6 +2137,7 @@
     } finally {
       syncInFlight = false;
       updateSyncStatus();
+      if (syncQueued) { syncQueued = false; scheduleSync(); }
     }
   }
 
@@ -2215,6 +2222,7 @@
     } finally {
       syncInFlight = false;
       updateSyncStatus();
+      if (syncQueued) { syncQueued = false; scheduleSync(); }
     }
   }
 
@@ -2810,11 +2818,11 @@
   // User-facing semantic version (MAJOR.MINOR.PATCH). This is what shows in Settings,
   // the update prompts, and the footers - a real version, not a build date. Bump it on
   // every deploy: PATCH for a fix, MINOR for a feature, MAJOR for a big milestone.
-  const APP_VERSION = "1.18.1";
+  const APP_VERSION = "1.18.2";
   // Internal build stamp. Bump on every deploy too (today's date + a counter). This is
   // what the updater actually COMPARES (it's monotonic, so detection never misfires) and
   // what cache-busts the reload; APP_VERSION above is the friendly label shown to users.
-  const BUILD = "2026-07-24.1";
+  const BUILD = "2026-07-28.1";
   // Compare two build stamps of the form "YYYY-MM-DD.N". A plain string compare is wrong
   // (the counter isn't zero-padded, so ".11" < ".9" lexically); split on - and . into
   // numeric fields and compare left to right. True iff `a` is strictly newer than `b`.
