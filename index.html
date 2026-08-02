@@ -894,6 +894,7 @@
     <div class="section-label">Coach</div>
     <div class="coach-grid">
       <button class="coach-tile" onclick="openAsk()"><span class="ct-ic">💬</span><span class="ct-title">Ask your log</span><span class="ct-sub">Question your lessons & sessions</span></button>
+      <button class="coach-tile" onclick="openSavedList()"><span class="ct-ic">📚</span><span class="ct-title">Past analyses</span><span class="ct-sub">Saved AI coaching, <span id="coach-saved-count">0</span> kept</span></button>
       <button class="coach-tile" onclick="showSection('setup')"><span class="ct-ic">🎯</span><span class="ct-title">Setup</span><span class="ct-sub">Grip, stance & alignment</span></button>
       <button class="coach-tile" onclick="showSection('swingthoughts')"><span class="ct-ic">💭</span><span class="ct-title">Swing Thoughts</span><span class="ct-sub">Focus cues that work</span></button>
       <button class="coach-tile" onclick="showSection('backswing')"><span class="ct-ic">🔙</span><span class="ct-title">Backswing</span><span class="ct-sub">Takeaway to the top</span></button>
@@ -1493,6 +1494,11 @@
                    ? a.messages.filter(m => m && m.role && typeof m.content === 'string')
                                .map(m => ({ role: m.role, content: m.content }))
                    : [],
+      // Keep the conversation's own voice + output budget so a follow-up on a
+      // REOPENED analysis behaves like the original (an "Ask your log" thread
+      // stays log-aware instead of falling back to the generic coach prompt).
+      system:    typeof a.system === 'string' ? a.system : '',
+      maxTokens: (typeof a.maxTokens === 'number' && a.maxTokens > 0) ? a.maxTokens : 0,
       createdAt: a.createdAt || new Date().toISOString(),
       updatedAt: a.updatedAt || a.createdAt || new Date().toISOString(),
       deleted:   !!a.deleted,
@@ -2818,7 +2824,7 @@
   // User-facing semantic version (MAJOR.MINOR.PATCH). This is what shows in Settings,
   // the update prompts, and the footers - a real version, not a build date. Bump it on
   // every deploy: PATCH for a fix, MINOR for a feature, MAJOR for a big milestone.
-  const APP_VERSION = "1.18.2";
+  const APP_VERSION = "1.19.0";
   // Internal build stamp. Bump on every deploy too (today's date + a counter). This is
   // what the updater actually COMPARES (it's monotonic, so detection never misfires) and
   // what cache-busts the reload; APP_VERSION above is the friendly label shown to users.
@@ -3187,8 +3193,11 @@
 
   // ---------- Saved analyses list ----------
   function renderSavedCount() {
+    const n = String((state.analyses || []).filter(function(a) { return !a.deleted; }).length);
     const el = document.getElementById('saved-count');
-    if (el) el.textContent = String((state.analyses || []).filter(function(a) { return !a.deleted; }).length);
+    if (el) el.textContent = n;
+    const el2 = document.getElementById('coach-saved-count');   // Coach hub tile
+    if (el2) el2.textContent = n;
   }
 
   function openSavedList() {
