@@ -149,6 +149,11 @@
     background: var(--surface); color: var(--ink-soft); cursor: pointer;
   }
   .ask-chip:active { transform: scale(0.99); }
+  /* Footer confirmation that an analysis filed itself automatically. */
+  .convo-saved-note {
+    font-size: 0.78rem; color: var(--ink-soft); align-self: center;
+    margin-right: 4px; white-space: nowrap;
+  }
   /* Organize-notes review cards */
   .org-card { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 10px; background: var(--surface); }
   .org-include-row { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--ink-soft); margin-bottom: 8px; }
@@ -2824,7 +2829,7 @@
   // User-facing semantic version (MAJOR.MINOR.PATCH). This is what shows in Settings,
   // the update prompts, and the footers - a real version, not a build date. Bump it on
   // every deploy: PATCH for a fix, MINOR for a feature, MAJOR for a big milestone.
-  const APP_VERSION = "1.19.0";
+  const APP_VERSION = "1.20.0";
   // Internal build stamp. Bump on every deploy too (today's date + a counter). This is
   // what the updater actually COMPARES (it's monotonic, so detection never misfires) and
   // what cache-busts the reload; APP_VERSION above is the friendly label shown to users.
@@ -3109,7 +3114,10 @@
       activeConvo.messages.push({ role: 'assistant', content: reply });
       activeConvo.updatedAt = new Date().toISOString();
       logDiag('AI conversation turn ok (stop=' + ((res && res.stop_reason) || '?') + ')');
-      if (activeConvo.saved) persistAnalyses();
+      // Auto-save: every analysis is kept as soon as it has a real reply, so
+      // Coach is a running record instead of only what you remembered to save.
+      // saveConversation is idempotent (adds once) and persists follow-ups too.
+      saveConversation();
       renderConversation(false);
     } catch (err) {
       logDiag('AI conversation error: ' + (err.message || err));
@@ -3147,7 +3155,10 @@
 
     const hasReply = activeConvo.messages.some(function(m) { return m.role === 'assistant'; });
     document.getElementById('convo-followup').style.display = (hasReply && !thinking) ? 'block' : 'none';
-    document.getElementById('convo-save-btn').style.display = (hasReply && !activeConvo.saved) ? 'inline-block' : 'none';
+    // Analyses save themselves once there is a real reply, so the footer just
+    // confirms it and offers Delete as the way to prune.
+    const note = document.getElementById('convo-saved-note');
+    if (note) note.style.display = activeConvo.saved ? 'inline' : 'none';
     document.getElementById('convo-delete-btn').style.display = activeConvo.saved ? 'inline-block' : 'none';
 
     // Copy button copies the readable thread.
@@ -3156,17 +3167,17 @@
     }).join('\n\n');
   }
 
+  // Idempotent: files the conversation the first time, and persists EVERY call
+  // after that so follow-up turns on an already-saved thread are stored too.
   function saveConversation() {
     if (!activeConvo) return;
-    if (!activeConvo.saved) {
-      activeConvo.saved = true;
-      activeConvo.updatedAt = new Date().toISOString();
-      if (!state.analyses) state.analyses = [];
-      if (!state.analyses.find(function(a) { return a.id === activeConvo.id; })) {
-        state.analyses.push(activeConvo);
-      }
-      persistAnalyses();
+    activeConvo.saved = true;
+    activeConvo.updatedAt = new Date().toISOString();
+    if (!state.analyses) state.analyses = [];
+    if (!state.analyses.find(function(a) { return a.id === activeConvo.id; })) {
+      state.analyses.push(activeConvo);
     }
+    persistAnalyses();
     renderConversation(false);
     renderSavedCount();
   }
@@ -3215,7 +3226,7 @@
     const items = (state.analyses || []).filter(function(a) { return !a.deleted; })
       .sort(function(a, b) { return (b.updatedAt || '').localeCompare(a.updatedAt || ''); });
     if (!items.length) {
-      list.innerHTML = '<div class="empty-state">No saved analyses yet. Run an analysis, then tap Save.</div>';
+      list.innerHTML = '<div class="empty-state">No analyses yet.<br>Run one from Analyze, Analyze all, or Ask your log — they are kept here automatically.</div>';
       return;
     }
     list.innerHTML = items.map(function(a) {
@@ -3239,10 +3250,10 @@
     renderConversation(false);
   }
 
-  // Hide follow-up / save / delete while the alone-vs-context choice is shown.
+  // Hide follow-up / saved-note / delete while the alone-vs-context choice is shown.
   function resetConvoChrome() {
     const f = document.getElementById('convo-followup');
-    const s = document.getElementById('convo-save-btn');
+    const s = document.getElementById('convo-saved-note');
     const d = document.getElementById('convo-delete-btn');
     if (f) f.style.display = 'none';
     if (s) s.style.display = 'none';
@@ -4650,7 +4661,7 @@
     <div class="modal-footer">
       <button class="btn-danger" id="convo-delete-btn" style="display:none" onclick="deleteConversation()">Delete</button>
       <div class="modal-footer-right" style="margin-left:auto">
-        <button class="btn-secondary" id="convo-save-btn" style="display:none" onclick="saveConversation()">Save</button>
+        <span class="convo-saved-note" id="convo-saved-note" style="display:none">Saved</span>
         <button class="btn-secondary" onclick="copyAnalysis()">Copy</button>
         <button class="btn-primary" onclick="closeAnalysis()">Done</button>
       </div>
