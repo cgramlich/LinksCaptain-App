@@ -141,6 +141,32 @@
     display: flex; flex-direction: column; gap: 6px; transition: transform 0.1s;
   }
   .coach-tile:active { transform: scale(0.98); }
+  /* Coach tips: edit affordances sit quietly beside the content until wanted. */
+  .tip { position: relative; }
+  .tip-edit {
+    background: none; border: none; color: var(--ink-soft); opacity: 0.45;
+    font-size: 0.85rem; cursor: pointer; padding: 0 2px; align-self: flex-start;
+  }
+  .tip-edit:active { opacity: 1; }
+  .tip-src { color: var(--ink-soft); }
+  .tip-add, .tip-add-card {
+    display: block; width: 100%; margin-top: 8px; padding: 7px 10px;
+    font-size: 0.8rem; color: var(--ink-soft); background: transparent;
+    border: 1px dashed var(--line); border-radius: 8px; cursor: pointer;
+  }
+  .tip-add-card { margin-bottom: 18px; }
+  .tip-add:active, .tip-add-card:active { color: var(--ink); }
+  /* Manage-tips rows */
+  .filter-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+  .tip-row { display: flex; align-items: center; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .tip-row:last-child { border-bottom: none; }
+  .tip-row-main { flex: 1 1 auto; min-width: 0; cursor: pointer; }
+  .tip-row-text { font-size: 0.86rem; line-height: 1.35; }
+  .tip-row-meta { font-size: 0.72rem; color: var(--ink-soft); margin-top: 2px; }
+  .tip-move {
+    flex: 0 0 auto; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 6px; width: 28px; height: 28px; cursor: pointer; color: var(--ink-soft);
+  }
   /* Ask-your-log example chips */
   .ask-chips { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
   .ask-chip {
@@ -900,6 +926,7 @@
     <div class="coach-grid">
       <button class="coach-tile" onclick="openAsk()"><span class="ct-ic">💬</span><span class="ct-title">Ask your log</span><span class="ct-sub">Question your lessons & sessions</span></button>
       <button class="coach-tile" onclick="openSavedList()"><span class="ct-ic">📚</span><span class="ct-title">Past analyses</span><span class="ct-sub">Saved AI coaching, <span id="coach-saved-count">0</span> kept</span></button>
+      <button class="coach-tile" onclick="showSection('tipsmanage')"><span class="ct-ic">🗂️</span><span class="ct-title">Manage tips</span><span class="ct-sub">Edit and organize by source</span></button>
       <button class="coach-tile" onclick="showSection('setup')"><span class="ct-ic">🎯</span><span class="ct-title">Setup</span><span class="ct-sub">Grip, stance & alignment</span></button>
       <button class="coach-tile" onclick="showSection('swingthoughts')"><span class="ct-ic">💭</span><span class="ct-title">Swing Thoughts</span><span class="ct-sub">Focus cues that work</span></button>
       <button class="coach-tile" onclick="showSection('backswing')"><span class="ct-ic">🔙</span><span class="ct-title">Backswing</span><span class="ct-sub">Takeaway to the top</span></button>
@@ -1039,6 +1066,20 @@
       <div class="tip"><div class="tip-dot"></div><div class="tip-text"><span class="tip-label">8. Visualize the divot in front of the ball</span> — from setup and takeaway, see the low point ahead of the ball. Let a body-generated swing drive through to create it, not hands</div></div>
       <div class="tip"><div class="tip-dot"></div><div class="tip-text"><span class="tip-label">9. Left leg anchors the turn — coil into the stretch, let it unwind itself</span> — left leg is the fixed post. Rotate against it on the backswing, then inertia does the work</div></div>
     </div>
+  </div>
+
+  <!-- MANAGE TIPS -->
+  <div id="tipsmanage" class="section">
+    <button class="coach-back" onclick="showSection('coach')">‹ Coach</button>
+    <p class="section-label">Manage tips (<span id="tips-total">0</span>)</p>
+    <input type="text" id="tip-search" placeholder="Search tips, sources, links…" oninput="onTipSearch(this.value)" autocapitalize="off">
+    <div class="filter-row">
+      <button class="filter-chip active" id="tipgroup-cat" onclick="setTipGroup('cat')">By page</button>
+      <button class="filter-chip" id="tipgroup-who" onclick="setTipGroup('who')">By who</button>
+      <button class="filter-chip" id="tipgroup-where" onclick="setTipGroup('where')">By source</button>
+    </div>
+    <button class="settings-fullbtn" onclick="openTipEditor(null,'swingthoughts','')">+ Add a tip</button>
+    <div id="tips-manage-list"></div>
   </div>
 
   <!-- BACKSWING -->
@@ -1400,7 +1441,7 @@
     coach: 'nav-coach', setup: 'nav-coach', swingthoughts: 'nav-coach',
     backswing: 'nav-coach', downswing: 'nav-coach', shortgame: 'nav-coach',
     putting: 'nav-coach', tempo: 'nav-coach', driver: 'nav-coach',
-    errors: 'nav-coach'
+    errors: 'nav-coach', tipsmanage: 'nav-coach'
     // 'settings' intentionally maps to nothing (reached via the header gear).
   };
 
@@ -1426,6 +1467,355 @@
   }
 
   // ============================================================
+  // COACH TIPS: the reference pages as editable, attributable data.
+  //
+  // These nine pages started life as hardcoded HTML, which meant a tip could
+  // not be corrected in the app and its source lived inside the sentence
+  // ("... - Kenny Totten"), so nothing could group or filter by it. A tip is
+  // now a record with a real source: WHO said it, WHERE it came from, and the
+  // URL. The original markup is kept in the page purely as the migration seed.
+  //
+  // "Fix My Shot" is deliberately NOT included: it is an interactive
+  // miss-diagnosis tool (buttons + panels), not a list of tips.
+  // ============================================================
+  const TIP_CATS = [
+    { id: 'setup',         name: 'Setup' },
+    { id: 'swingthoughts', name: 'Swing Thoughts' },
+    { id: 'backswing',     name: 'Backswing' },
+    { id: 'downswing',     name: 'Downswing' },
+    { id: 'shortgame',     name: 'Short Game' },
+    { id: 'putting',       name: 'Putting' },
+    { id: 'tempo',         name: 'Tempo' },
+    { id: 'driver',        name: 'Driver' }
+  ];
+  const TIP_CAT_NAME = TIP_CATS.reduce(function(m, c) { m[c.id] = c.name; return m; }, {});
+
+  const TIP_PLATFORMS = [
+    { id: '',         name: 'Unspecified' },
+    { id: 'youtube',  name: 'YouTube' },
+    { id: 'x',        name: 'X' },
+    { id: 'instagram',name: 'Instagram' },
+    { id: 'lesson',   name: 'Lesson' },
+    { id: 'book',     name: 'Book' },
+    { id: 'podcast',  name: 'Podcast' },
+    { id: 'web',      name: 'Web' },
+    { id: 'own',      name: 'My own' }
+  ];
+  const TIP_PLATFORM_NAME = TIP_PLATFORMS.reduce(function(m, p) { m[p.id] = p.name; return m; }, {});
+
+  function activeTips() {
+    return (state.tips || []).filter(function(t) { return !t.deleted; });
+  }
+  function tipById(id) {
+    return (state.tips || []).find(function(t) { return t.id === id && !t.deleted; });
+  }
+  function persistTips() {
+    saveLocal();
+    scheduleSync();
+  }
+
+  // Guess the platform from a URL so migrated links are not all "Unspecified".
+  function platformFromUrl(url) {
+    const u = (url || '').toLowerCase();
+    if (!u) return '';
+    if (u.indexOf('youtube.com') !== -1 || u.indexOf('youtu.be') !== -1) return 'youtube';
+    if (u.indexOf('x.com') !== -1 || u.indexOf('twitter.com') !== -1) return 'x';
+    if (u.indexOf('instagram.com') !== -1) return 'instagram';
+    return 'web';
+  }
+
+  // Pull one hardcoded .tip-text apart into label / text / source. The seed
+  // markup uses three shapes: plain text, "<label> - description", and
+  // "<link> - Attribution", so the trailing dash chunk after a link is the
+  // source name rather than part of the tip.
+  function parseSeedTip(txtEl) {
+    const clone = txtEl.cloneNode(true);
+    let label = '';
+    const labelEl = clone.querySelector('.tip-label');
+    if (labelEl) { label = labelEl.textContent.trim(); labelEl.remove(); }
+
+    let url = '', linkText = '';
+    const a = clone.querySelector('a');
+    if (a) {
+      url = a.getAttribute('href') || '';
+      linkText = a.textContent.replace(/\s*▶\s*$/, '').trim();  // drop the play glyph
+      a.remove();
+    }
+
+    // Whatever survives is the prose; strip the separator dashes it was joined
+    // with. Some tips read "<label> - description" and others flow straight on
+    // ("<label> per session"), so remember which, or every tip gains a dash it
+    // never had.
+    let rest = clone.textContent.replace(/\s+/g, ' ').trim();
+    const joinDash = /^[—\-–]/.test(rest);
+    rest = rest.replace(/^[—\-–]\s*/, '').replace(/\s*[—\-–]\s*$/, '').trim();
+
+    let text = '', who = '';
+    if (url) { text = linkText; who = rest; }   // rest after a link is the attribution
+    else     { text = rest; }
+    if (!label && !text && !url) return null;
+    return { label: label, text: text, who: who, url: url,
+             where: platformFromUrl(url), joinDash: joinDash };
+  }
+
+  // One-time seed from the hardcoded markup. Runs only when there are NO tip
+  // records at all - tombstones count, so deleting every tip does not cause
+  // the originals to reappear on the next load.
+  function migrateCoachTipsOnce() {
+    if ((state.tips || []).length) return 0;
+    const now = new Date().toISOString();
+    const out = [];
+    let order = 0;
+    TIP_CATS.forEach(function(cat) {
+      const sec = document.getElementById(cat.id);
+      if (!sec) return;
+      sec.querySelectorAll('.card').forEach(function(card) {
+        const titleEl = card.querySelector('.card-title');
+        let icon = '', cardName = '';
+        if (titleEl) {
+          const ic = titleEl.querySelector('.icon');
+          icon = ic ? ic.textContent.trim() : '';
+          cardName = titleEl.textContent.replace(icon, '').replace(/\s+/g, ' ').trim();
+        }
+        const gold = card.classList.contains('gold');
+        card.querySelectorAll('.tip').forEach(function(tip) {
+          const txtEl = tip.querySelector('.tip-text');
+          if (!txtEl) return;
+          const p = parseSeedTip(txtEl);
+          if (!p) return;
+          out.push({
+            id: makeId(), cat: cat.id, card: cardName, icon: icon, gold: gold,
+            label: p.label, text: p.text, who: p.who, where: p.where, url: p.url,
+            joinDash: p.joinDash,
+            order: order++, createdAt: now, updatedAt: now, deleted: false
+          });
+        });
+      });
+    });
+    if (!out.length) return 0;
+    state.tips = out;
+    saveLocal();
+    logDiag('seeded ' + out.length + ' coach tips from the built-in pages');
+    return out.length;
+  }
+
+  // ---------- rendering ----------
+  function tipInnerHtml(t) {
+    let inner = '';
+    if (t.label) inner += '<span class="tip-label">' + escapeHtml(t.label) + '</span>';
+    if (t.url) {
+      inner += (inner ? ' ' : '')
+        + '<a href="' + escapeHtml(t.url) + '" target="_blank" rel="noopener" class="vlink">'
+        + escapeHtml(t.text || t.url) + ' ▶</a>';
+    } else if (t.text) {
+      inner += (inner ? (t.joinDash === false ? ' ' : ' — ') : '') + escapeHtml(t.text);
+    }
+    if (t.who) inner += ' <span class="tip-src">— ' + escapeHtml(t.who) + '</span>';
+    return inner;
+  }
+
+  function renderCoachCat(catId) {
+    const sec = document.getElementById(catId);
+    if (!sec) return;
+    const tips = activeTips().filter(function(t) { return t.cat === catId; })
+      .sort(function(a, b) { return (a.order || 0) - (b.order || 0); });
+
+    // Group into cards, keeping each card in the order its first tip appears.
+    const groups = [], byName = {};
+    tips.forEach(function(t) {
+      const key = t.card || '';
+      if (!byName[key]) { byName[key] = { card: key, icon: t.icon, gold: t.gold, items: [] }; groups.push(byName[key]); }
+      byName[key].items.push(t);
+    });
+
+    let html = groups.map(function(g) {
+      return '<div class="card' + (g.gold ? ' gold' : '') + '">'
+        + '<div class="card-title"><span class="icon">' + escapeHtml(g.icon || '⛳') + '</span> ' + escapeHtml(g.card) + '</div>'
+        + g.items.map(function(t) {
+            return '<div class="tip">'
+              + '<div class="tip-dot"></div>'
+              + '<div class="tip-text">' + tipInnerHtml(t) + '</div>'
+              + '<button class="tip-edit" title="Edit this tip" onclick="openTipEditor(\'' + t.id + '\')">✎</button>'
+              + '</div>';
+          }).join('')
+        + '<button class="tip-add" onclick="openTipEditor(null, \'' + catId + '\', ' + JSON.stringify(g.card).replace(/"/g, '&quot;') + ')">+ Add tip</button>'
+        + '</div>';
+    }).join('');
+
+    html += '<button class="tip-add-card" onclick="openTipEditor(null, \'' + catId + '\', \'\')">+ Add a new card</button>';
+    if (!groups.length) {
+      html = '<div class="empty-state">No tips here yet.</div>' + html;
+    }
+    sec.innerHTML = html;
+  }
+
+  function renderAllCoachTips() {
+    TIP_CATS.forEach(function(c) { renderCoachCat(c.id); });
+  }
+
+  // ---------- editor (inline, from any tip or card) ----------
+  let editingTipId = null;
+
+  function openTipEditor(id, presetCat, presetCard) {
+    editingTipId = id || null;
+    const t = id ? tipById(id) : null;
+    const catSel = document.getElementById('tip-cat');
+    catSel.innerHTML = TIP_CATS.map(function(c) {
+      return '<option value="' + c.id + '">' + escapeHtml(c.name) + '</option>';
+    }).join('');
+    const whereSel = document.getElementById('tip-where');
+    whereSel.innerHTML = TIP_PLATFORMS.map(function(p) {
+      return '<option value="' + p.id + '">' + escapeHtml(p.name) + '</option>';
+    }).join('');
+    // Suggest the cards already in use so tips land in an existing group.
+    const cards = {};
+    activeTips().forEach(function(x) { if (x.card) cards[x.card] = 1; });
+    document.getElementById('tip-card-list').innerHTML =
+      Object.keys(cards).sort().map(function(c) { return '<option value="' + escapeHtml(c) + '">'; }).join('');
+
+    catSel.value   = t ? t.cat   : (presetCat || 'swingthoughts');
+    whereSel.value = t ? t.where : '';
+    document.getElementById('tip-card').value  = t ? t.card  : (presetCard || '');
+    document.getElementById('tip-icon').value  = t ? t.icon  : '';
+    document.getElementById('tip-label').value = t ? t.label : '';
+    document.getElementById('tip-text').value  = t ? t.text  : '';
+    document.getElementById('tip-who').value   = t ? t.who   : '';
+    document.getElementById('tip-url').value   = t ? t.url   : '';
+    document.getElementById('tip-modal-title').textContent = t ? 'Edit tip' : 'Add tip';
+    document.getElementById('tip-delete-btn').style.display = t ? 'inline-block' : 'none';
+    document.getElementById('tip-modal').classList.add('visible');
+  }
+  function closeTipEditor() {
+    document.getElementById('tip-modal').classList.remove('visible');
+  }
+
+  function saveTip() {
+    const cat   = document.getElementById('tip-cat').value;
+    const card  = document.getElementById('tip-card').value.trim();
+    const icon  = document.getElementById('tip-icon').value.trim();
+    const label = document.getElementById('tip-label').value.trim();
+    const text  = document.getElementById('tip-text').value.trim();
+    const who   = document.getElementById('tip-who').value.trim();
+    const url   = document.getElementById('tip-url').value.trim();
+    let where   = document.getElementById('tip-where').value;
+    if (!text && !label && !url) { alert('Add some text or a link first.'); return; }
+    if (!where && url) where = platformFromUrl(url);   // infer rather than leave blank
+    const now = new Date().toISOString();
+    const existing = editingTipId ? tipById(editingTipId) : null;
+    if (existing) {
+      Object.assign(existing, { cat: cat, card: card, icon: icon, label: label,
+        text: text, who: who, where: where, url: url, updatedAt: now });
+    } else {
+      // New tips go to the end of their category.
+      const maxOrder = activeTips().filter(function(x) { return x.cat === cat; })
+        .reduce(function(m, x) { return Math.max(m, x.order || 0); }, 0);
+      if (!state.tips) state.tips = [];
+      state.tips.push({ id: makeId(), cat: cat, card: card, icon: icon, gold: false,
+        label: label, text: text, who: who, where: where, url: url, joinDash: true,
+        order: maxOrder + 1, createdAt: now, updatedAt: now, deleted: false });
+    }
+    persistTips();
+    closeTipEditor();
+    renderAllCoachTips();
+    renderTipsManage();
+  }
+
+  function deleteTip() {
+    if (!editingTipId) return;
+    if (!confirm('Delete this tip? It is removed from this device and from sync.')) return;
+    const t = tipById(editingTipId);
+    if (t) { t.deleted = true; t.updatedAt = new Date().toISOString(); }
+    persistTips();
+    closeTipEditor();
+    renderAllCoachTips();
+    renderTipsManage();
+  }
+
+  // ---------- manage screen (search, group, reorder) ----------
+  let tipGroupBy = 'cat';
+  let tipQuery = '';
+
+  function setTipGroup(mode) {
+    tipGroupBy = mode;
+    document.querySelectorAll('#tipsmanage .filter-chip').forEach(function(c) { c.classList.remove('active'); });
+    const btn = document.getElementById('tipgroup-' + mode);
+    if (btn) btn.classList.add('active');
+    renderTipsManage();
+  }
+  function onTipSearch(v) { tipQuery = (v || '').toLowerCase(); renderTipsManage(); }
+
+  // Move a tip within its category. Swapping order with the neighbour keeps
+  // this reliable on touch, where drag-and-drop reordering is fiddly.
+  function moveTip(id, dir) {
+    const t = tipById(id);
+    if (!t) return;
+    const sibs = activeTips().filter(function(x) { return x.cat === t.cat; })
+      .sort(function(a, b) { return (a.order || 0) - (b.order || 0); });
+    const i = sibs.findIndex(function(x) { return x.id === id; });
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= sibs.length) return;
+    const other = sibs[j];
+    const tmp = t.order; t.order = other.order; other.order = tmp;
+    const now = new Date().toISOString();
+    t.updatedAt = now; other.updatedAt = now;
+    persistTips();
+    renderAllCoachTips();
+    renderTipsManage();
+  }
+
+  function renderTipsManage() {
+    const host = document.getElementById('tips-manage-list');
+    if (!host) return;
+    let tips = activeTips();
+    if (tipQuery) {
+      tips = tips.filter(function(t) {
+        return (t.text + ' ' + t.label + ' ' + t.who + ' ' + t.card + ' ' + t.url).toLowerCase().indexOf(tipQuery) !== -1;
+      });
+    }
+    const countEl = document.getElementById('tips-total');
+    if (countEl) countEl.textContent = String(activeTips().length);
+
+    if (!tips.length) {
+      host.innerHTML = '<div class="empty-state">No tips match.</div>';
+      return;
+    }
+    // Bucket by whichever dimension is selected.
+    const buckets = {}, orderKeys = [];
+    tips.forEach(function(t) {
+      let key;
+      if (tipGroupBy === 'who')        key = t.who || 'Unattributed';
+      else if (tipGroupBy === 'where') key = TIP_PLATFORM_NAME[t.where] || 'Unspecified';
+      else                             key = TIP_CAT_NAME[t.cat] || t.cat;
+      if (!buckets[key]) { buckets[key] = []; orderKeys.push(key); }
+      buckets[key].push(t);
+    });
+    orderKeys.sort(function(a, b) {
+      if (a === 'Unattributed' || a === 'Unspecified') return 1;   // stragglers last
+      if (b === 'Unattributed' || b === 'Unspecified') return -1;
+      return a.localeCompare(b);
+    });
+
+    host.innerHTML = orderKeys.map(function(k) {
+      const items = buckets[k].sort(function(a, b) { return (a.order || 0) - (b.order || 0); });
+      return '<p class="section-label">' + escapeHtml(k) + ' (' + items.length + ')</p>'
+        + '<div class="settings-card">'
+        + items.map(function(t) {
+            const meta = [TIP_CAT_NAME[t.cat] || t.cat, t.card, t.who, TIP_PLATFORM_NAME[t.where] || '']
+              .filter(Boolean).join(' · ');
+            return '<div class="tip-row">'
+              + '<div class="tip-row-main" onclick="openTipEditor(\'' + t.id + '\')">'
+              +   '<div class="tip-row-text">' + escapeHtml(t.label || t.text || t.url) + '</div>'
+              +   '<div class="tip-row-meta">' + escapeHtml(meta) + (t.url ? ' · link' : '') + '</div>'
+              + '</div>'
+              + '<button class="tip-move" title="Move up" onclick="moveTip(\'' + t.id + '\',-1)">↑</button>'
+              + '<button class="tip-move" title="Move down" onclick="moveTip(\'' + t.id + '\',1)">↓</button>'
+              + '</div>';
+          }).join('')
+        + '</div>';
+    }).join('');
+  }
+
+  // ============================================================
   // LOG feature: storage, CRUD, render, export, sync
   //
   // WHY the key prefix matters: cgramlich.github.io hosts more than one app
@@ -1447,7 +1837,7 @@
   const KEY_AUTH = 'lc-auth';
 
   // Whole-app state mirrored to one localStorage key. One JSON object, one key.
-  let state = { version: 1, entries: [], courses: [], rounds: [], analyses: [] };
+  let state = { version: 1, entries: [], courses: [], rounds: [], analyses: [], tips: [] };
   let currentFilter = 'all';
   let editingId = null;
   let syncTimer = null;
@@ -1552,7 +1942,27 @@
       updatedAt: r.updatedAt || r.createdAt || new Date().toISOString(),
       deleted:   !!r.deleted
     })) : [];
-    return { version: 1, entries, courses, rounds, analyses };
+    // Coach tips. `where` is the platform the tip came from and `who` is the
+    // person or channel, kept as real fields (not buried in the text) so tips
+    // can be grouped and filtered by source.
+    const tips = Array.isArray(raw.tips) ? raw.tips.map(t => ({
+      id:        t.id || makeId(),
+      cat:       typeof t.cat === 'string' ? t.cat : 'swingthoughts',
+      card:      typeof t.card === 'string' ? t.card : '',
+      icon:      typeof t.icon === 'string' ? t.icon : '',
+      gold:      !!t.gold,
+      label:     typeof t.label === 'string' ? t.label : '',
+      text:      typeof t.text === 'string' ? t.text : '',
+      who:       typeof t.who === 'string' ? t.who : '',
+      where:     typeof t.where === 'string' ? t.where : '',
+      url:       typeof t.url === 'string' ? t.url : '',
+      joinDash:  t.joinDash !== false,   // dash between lead-in and text unless seeded otherwise
+      order:     typeof t.order === 'number' ? t.order : 0,
+      createdAt: t.createdAt || new Date().toISOString(),
+      updatedAt: t.updatedAt || t.createdAt || new Date().toISOString(),
+      deleted:   !!t.deleted
+    })) : [];
+    return { version: 1, entries, courses, rounds, analyses, tips };
   }
 
   function makeId() {
@@ -2093,7 +2503,7 @@
   // Personal data lives in Supabase behind the authed API. Pull every collection,
   // merge with local (newer updatedAt wins; tombstones survive), save locally,
   // then push the merged arrays back. Gated on being signed in - no GitHub PAT.
-  const SYNC_COLLECTIONS = ['entries', 'courses', 'rounds', 'analyses'];
+  const SYNC_COLLECTIONS = ['entries', 'courses', 'rounds', 'analyses', 'tips'];
 
   async function runSync() {
     // A save that lands while a sync is already in flight must still get
@@ -2127,6 +2537,7 @@
       state = mergeStates(state, remoteNorm);
       saveLocal();
       renderEntries(); renderCourses(); renderRounds();
+      renderAllCoachTips(); renderTipsManage();   // tips edited on another device
 
       // 3. Push merged arrays back (upsert + prune, per collection).
       for (const cname of SYNC_COLLECTIONS) {
@@ -2243,7 +2654,8 @@
       entries: mergeById(local.entries, remote.entries),
       courses: mergeById(local.courses, remote.courses),
       rounds: mergeById(local.rounds, remote.rounds),
-      analyses: mergeById(local.analyses, remote.analyses)
+      analyses: mergeById(local.analyses, remote.analyses),
+      tips: mergeById(local.tips, remote.tips)
     };
   }
 
@@ -2284,6 +2696,7 @@
     if (ev.target && ev.target.classList && ev.target.classList.contains('modal-overlay')) {
       const id = ev.currentTarget.id;
       if (id === 'entry-modal') closeEntryForm();
+      else if (id === 'tip-modal') closeTipEditor();
       else if (id === 'organize-modal') closeOrganize();
       else if (id === 'ask-modal') closeAsk();
       else if (id === 'sync-modal') closeSyncSettings();
@@ -2297,6 +2710,11 @@
   // ---------- init ----------
   document.addEventListener('DOMContentLoaded', () => {
     loadLocal();
+    // Seed the Coach tips from the built-in pages BEFORE rendering, since the
+    // seed is read out of that very markup and rendering replaces it.
+    migrateCoachTipsOnce();
+    renderAllCoachTips();
+    renderTipsManage();
     renderEntries();
     renderCourses();
     renderRounds();
@@ -2829,7 +3247,7 @@
   // User-facing semantic version (MAJOR.MINOR.PATCH). This is what shows in Settings,
   // the update prompts, and the footers - a real version, not a build date. Bump it on
   // every deploy: PATCH for a fix, MINOR for a feature, MAJOR for a big milestone.
-  const APP_VERSION = "1.20.0";
+  const APP_VERSION = "1.21.0";
   // Internal build stamp. Bump on every deploy too (today's date + a counter). This is
   // what the updater actually COMPARES (it's monotonic, so detection never misfires) and
   // what cache-busts the reload; APP_VERSION above is the friendly label shown to users.
@@ -4582,6 +5000,50 @@
       <div class="modal-footer-right">
         <button class="btn-secondary" onclick="closeAISettings()">Cancel</button>
         <button class="btn-primary" onclick="saveAISettings()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="tip-modal" onclick="closeOnBackdrop(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="tip-modal-title">Edit tip</h3>
+      <button class="modal-close" onclick="closeTipEditor()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <label>Page</label>
+      <select id="tip-cat"></select>
+
+      <label>Card (the group it sits in)</label>
+      <input type="text" id="tip-card" list="tip-card-list" placeholder="e.g. Rhythm &amp; Feel">
+      <datalist id="tip-card-list"></datalist>
+
+      <label>Card icon (optional)</label>
+      <input type="text" id="tip-icon" placeholder="e.g. 💫" maxlength="4">
+
+      <label>Lead-in (optional, shown in bold)</label>
+      <input type="text" id="tip-label" placeholder="e.g. Grip pressure light (4/10)">
+
+      <label>Tip text</label>
+      <textarea id="tip-text" rows="3" placeholder="The cue, drill, or the title of the video…"></textarea>
+
+      <p class="modal-help">Where did this come from? Filling these in is what lets you group and filter your tips by source.</p>
+
+      <label>Who (person or channel)</label>
+      <input type="text" id="tip-who" placeholder="e.g. Kenny Totten">
+
+      <label>Source</label>
+      <select id="tip-where"></select>
+
+      <label>Link (optional)</label>
+      <input type="text" id="tip-url" placeholder="https://…" autocapitalize="off" autocorrect="off">
+    </div>
+    <div class="modal-footer">
+      <button class="btn-danger" id="tip-delete-btn" style="display:none" onclick="deleteTip()">Delete</button>
+      <div class="modal-footer-right">
+        <button class="btn-secondary" onclick="closeTipEditor()">Cancel</button>
+        <button class="btn-primary" onclick="saveTip()">Save</button>
       </div>
     </div>
   </div>
