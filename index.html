@@ -141,6 +141,26 @@
     display: flex; flex-direction: column; gap: 6px; transition: transform 0.1s;
   }
   .coach-tile:active { transform: scale(0.98); }
+  /* Bag check */
+  .bag-progress { font-size: 0.8rem; color: var(--ink-soft); margin-bottom: 8px; }
+  .bag-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .bag-row:last-child { border-bottom: none; }
+  .bag-check { width: 20px; height: 20px; flex: 0 0 auto; margin: 0; }
+  .bag-text { flex: 1 1 auto; font-size: 0.9rem; cursor: pointer; }
+  .bag-text.done { text-decoration: line-through; color: var(--ink-soft); }
+  .bag-add-row { display: flex; gap: 8px; margin-top: 12px; }
+  .bag-add-row input { flex: 1 1 auto; margin: 0; }
+  .bag-add-row button { flex: 0 0 auto; }
+  .play-bag-banner {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    font-size: 0.8rem; padding: 8px 10px; margin-bottom: 10px; border-radius: 8px;
+    background: rgba(201,168,76,0.18); color: #8a6a1a; border: 1px solid rgba(201,168,76,0.4);
+  }
+  .play-bag-banner.ok { background: rgba(45,90,39,0.12); color: var(--green); border-color: rgba(45,90,39,0.3); }
+  .bag-open-btn {
+    flex: 0 0 auto; background: transparent; border: 1px solid currentColor;
+    color: inherit; border-radius: 6px; padding: 3px 10px; font-size: 0.76rem; cursor: pointer;
+  }
   /* Coach tips: edit affordances sit quietly beside the content until wanted. */
   .tip { position: relative; }
   .tip-edit {
@@ -987,6 +1007,7 @@
       <button class="btn-primary" onclick="openPlay()">▶ Play a round</button>
       <button class="btn-secondary" onclick="openRoundForm()">+ Log round</button>
       <button class="btn-secondary" onclick="scanNewRound()">Scan scorecard</button>
+      <button class="btn-secondary" onclick="showSection('bagcheck')">Bag check</button>
     </div>
 
     <input type="text" class="search-box" id="round-search" placeholder="Search your rounds..." oninput="renderRounds()">
@@ -1066,6 +1087,21 @@
       <div class="tip"><div class="tip-dot"></div><div class="tip-text"><span class="tip-label">8. Visualize the divot in front of the ball</span> — from setup and takeaway, see the low point ahead of the ball. Let a body-generated swing drive through to create it, not hands</div></div>
       <div class="tip"><div class="tip-dot"></div><div class="tip-text"><span class="tip-label">9. Left leg anchors the turn — coil into the stretch, let it unwind itself</span> — left leg is the fixed post. Rotate against it on the backswing, then inertia does the work</div></div>
     </div>
+  </div>
+
+  <!-- BAG CHECK -->
+  <div id="bagcheck" class="section">
+    <button class="coach-back" onclick="showSection('rounds')">&lsaquo; Rounds</button>
+    <p class="section-label">Bag check</p>
+    <div class="settings-card">
+      <div id="bag-progress" class="bag-progress"></div>
+      <div id="bag-list"></div>
+      <div class="bag-add-row">
+        <input type="text" id="bag-new" placeholder="Add an item..." onkeydown="if(event.key==='Enter')addBagItem()">
+        <button class="btn-primary" onclick="addBagItem()">Add</button>
+      </div>
+    </div>
+    <button class="settings-fullbtn" onclick="resetBagCheck()">Uncheck everything for the next round</button>
   </div>
 
   <!-- MANAGE TIPS -->
@@ -1441,7 +1477,7 @@
     coach: 'nav-coach', setup: 'nav-coach', swingthoughts: 'nav-coach',
     backswing: 'nav-coach', downswing: 'nav-coach', shortgame: 'nav-coach',
     putting: 'nav-coach', tempo: 'nav-coach', driver: 'nav-coach',
-    errors: 'nav-coach', tipsmanage: 'nav-coach'
+    errors: 'nav-coach', tipsmanage: 'nav-coach', bagcheck: 'nav-rounds'
     // 'settings' intentionally maps to nothing (reached via the header gear).
   };
 
@@ -1464,6 +1500,174 @@
     btn.classList.add('active');
     document.getElementById('fix-' + type).classList.add('visible');
     document.getElementById('fix-' + type).scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // ============================================================
+  // BAG CHECK: the pre-round checklist ("what do I need to take?").
+  //
+  // Deliberately ONE reusable list rather than a fresh to-do per round: you
+  // pack the same bag every time, so the value is in ticking a known list and
+  // resetting it, not in authoring a new one. `checkedAt` records WHEN an item
+  // was ticked, which is what lets the Play screen tell whether the list has
+  // been run today without keeping a separate "last run" flag.
+  // ============================================================
+  const DEFAULT_BAG = [
+    'Clubs', 'Balls', 'Tees', 'Glove', 'Ball marker', 'Divot tool',
+    'Rangefinder or GPS', 'Water', 'Snacks', 'Sunscreen', 'Hat', 'Sunglasses',
+    'Rain gear', 'Towel', 'Extra socks', 'Cash for the turn', 'Phone battery'
+  ];
+
+  function activeBag() {
+    return (state.checklist || []).filter(function(c) { return !c.deleted; })
+      .sort(function(a, b) { return (a.order || 0) - (b.order || 0); });
+  }
+  function bagItemById(id) {
+    return (state.checklist || []).find(function(c) { return c.id === id && !c.deleted; });
+  }
+  function persistChecklist() { saveLocal(); scheduleSync(); }
+
+  // Seed a starter list only when there are NO records at all. Tombstones
+  // count, so clearing the list on purpose does not bring the defaults back.
+  function seedChecklistOnce() {
+    if ((state.checklist || []).length) return 0;
+    const now = new Date().toISOString();
+    state.checklist = DEFAULT_BAG.map(function(t, i) {
+      return { id: makeId(), text: t, checked: false, checkedAt: '',
+               order: i, createdAt: now, updatedAt: now, deleted: false };
+    });
+    saveLocal();
+    return state.checklist.length;
+  }
+
+  function bagCheckedToday() {
+    const today = todayISO();
+    return activeBag().some(function(c) { return (c.checkedAt || '').slice(0, 10) === today; });
+  }
+
+  function renderChecklist() {
+    const host = document.getElementById('bag-list');
+    if (!host) return;
+    const items = activeBag();
+    const done = items.filter(function(c) { return c.checked; }).length;
+    const prog = document.getElementById('bag-progress');
+    if (prog) {
+      prog.textContent = items.length
+        ? (done + ' of ' + items.length + ' packed' + (bagCheckedToday() ? ' · run today' : ''))
+        : 'Nothing on the list yet.';
+    }
+    host.innerHTML = items.map(function(c) {
+      return '<div class="bag-row">'
+        + '<input type="checkbox" class="bag-check"' + (c.checked ? ' checked' : '')
+        +   ' onchange="toggleBagItem(&quot;' + c.id + '&quot;)">'
+        + '<div class="bag-text' + (c.checked ? ' done' : '') + '" onclick="openBagEditor(&quot;' + c.id + '&quot;)">'
+        +   escapeHtml(c.text) + '</div>'
+        + '<button class="tip-move" title="Move up" onclick="moveBagItem(&quot;' + c.id + '&quot;,-1)">↑</button>'
+        + '<button class="tip-move" title="Move down" onclick="moveBagItem(&quot;' + c.id + '&quot;,1)">↓</button>'
+        + '</div>';
+    }).join('');
+    renderPlayBagBanner();
+  }
+
+  function toggleBagItem(id) {
+    const c = bagItemById(id);
+    if (!c) return;
+    c.checked = !c.checked;
+    c.checkedAt = c.checked ? new Date().toISOString() : '';
+    c.updatedAt = new Date().toISOString();
+    persistChecklist();
+    renderChecklist();
+  }
+
+  function addBagItem() {
+    const input = document.getElementById('bag-new');
+    const text = input ? input.value.trim() : '';
+    if (!text) { if (input) input.focus(); return; }
+    const now = new Date().toISOString();
+    const maxOrder = activeBag().reduce(function(m, c) { return Math.max(m, c.order || 0); }, 0);
+    if (!state.checklist) state.checklist = [];
+    state.checklist.push({ id: makeId(), text: text, checked: false, checkedAt: '',
+      order: maxOrder + 1, createdAt: now, updatedAt: now, deleted: false });
+    input.value = '';
+    persistChecklist();
+    renderChecklist();
+    input.focus();
+  }
+
+  let editingBagId = null;
+  function openBagEditor(id) {
+    const c = bagItemById(id);
+    if (!c) return;
+    editingBagId = id;
+    document.getElementById('bag-edit-text').value = c.text;
+    document.getElementById('bag-modal').classList.add('visible');
+  }
+  function closeBagEditor() {
+    document.getElementById('bag-modal').classList.remove('visible');
+  }
+  function saveBagItem() {
+    const c = editingBagId ? bagItemById(editingBagId) : null;
+    if (!c) { closeBagEditor(); return; }
+    const text = document.getElementById('bag-edit-text').value.trim();
+    if (!text) { alert('Give the item a name.'); return; }
+    c.text = text;
+    c.updatedAt = new Date().toISOString();
+    persistChecklist();
+    closeBagEditor();
+    renderChecklist();
+  }
+  function deleteBagItem() {
+    const c = editingBagId ? bagItemById(editingBagId) : null;
+    if (!c) return;
+    if (!confirm('Remove "' + c.text + '" from the list?')) return;
+    c.deleted = true;
+    c.updatedAt = new Date().toISOString();
+    persistChecklist();
+    closeBagEditor();
+    renderChecklist();
+  }
+
+  // Swap order with the neighbour; reliable on touch where dragging is fiddly.
+  function moveBagItem(id, dir) {
+    const items = activeBag();
+    const i = items.findIndex(function(c) { return c.id === id; });
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= items.length) return;
+    const a = items[i], b = items[j];
+    const tmp = a.order; a.order = b.order; b.order = tmp;
+    const now = new Date().toISOString();
+    a.updatedAt = now; b.updatedAt = now;
+    persistChecklist();
+    renderChecklist();
+  }
+
+  function resetBagCheck() {
+    const items = activeBag().filter(function(c) { return c.checked; });
+    if (!items.length) return;
+    if (!confirm('Uncheck all ' + items.length + ' items for the next round?')) return;
+    const now = new Date().toISOString();
+    items.forEach(function(c) { c.checked = false; c.checkedAt = ''; c.updatedAt = now; });
+    persistChecklist();
+    renderChecklist();
+  }
+
+  // Nudge shown inside the Play screen. Non-blocking on purpose: it reports the
+  // state and offers the list, it never stands between you and teeing off.
+  function renderPlayBagBanner() {
+    const el = document.getElementById('play-bagcheck');
+    if (!el) return;
+    const items = activeBag();
+    if (!items.length) { el.style.display = 'none'; return; }
+    const done = items.filter(function(c) { return c.checked; }).length;
+    el.style.display = '';
+    if (bagCheckedToday()) {
+      el.className = 'play-bag-banner ok';
+      el.innerHTML = 'Bag check run today — ' + done + ' of ' + items.length + ' packed'
+        + ' <button class="bag-open-btn" onclick="closePlay();showSection(&quot;bagcheck&quot;)">Review</button>';
+    } else {
+      el.className = 'play-bag-banner';
+      el.innerHTML = 'Bag check not run today'
+        + ' <button class="bag-open-btn" onclick="closePlay();showSection(&quot;bagcheck&quot;)">Open</button>';
+    }
   }
 
   // ============================================================
@@ -1837,7 +2041,7 @@
   const KEY_AUTH = 'lc-auth';
 
   // Whole-app state mirrored to one localStorage key. One JSON object, one key.
-  let state = { version: 1, entries: [], courses: [], rounds: [], analyses: [], tips: [] };
+  let state = { version: 1, entries: [], courses: [], rounds: [], analyses: [], tips: [], checklist: [] };
   let currentFilter = 'all';
   let editingId = null;
   let syncTimer = null;
@@ -1962,7 +2166,19 @@
       updatedAt: t.updatedAt || t.createdAt || new Date().toISOString(),
       deleted:   !!t.deleted
     })) : [];
-    return { version: 1, entries, courses, rounds, analyses, tips };
+    // Bag check items. `checkedAt` is what makes "did I run this today?"
+    // answerable, so the Play screen can nudge without nagging.
+    const checklist = Array.isArray(raw.checklist) ? raw.checklist.map(c => ({
+      id:        c.id || makeId(),
+      text:      typeof c.text === 'string' ? c.text : '',
+      checked:   !!c.checked,
+      checkedAt: typeof c.checkedAt === 'string' ? c.checkedAt : '',
+      order:     typeof c.order === 'number' ? c.order : 0,
+      createdAt: c.createdAt || new Date().toISOString(),
+      updatedAt: c.updatedAt || c.createdAt || new Date().toISOString(),
+      deleted:   !!c.deleted
+    })) : [];
+    return { version: 1, entries, courses, rounds, analyses, tips, checklist };
   }
 
   function makeId() {
@@ -2503,7 +2719,7 @@
   // Personal data lives in Supabase behind the authed API. Pull every collection,
   // merge with local (newer updatedAt wins; tombstones survive), save locally,
   // then push the merged arrays back. Gated on being signed in - no GitHub PAT.
-  const SYNC_COLLECTIONS = ['entries', 'courses', 'rounds', 'analyses', 'tips'];
+  const SYNC_COLLECTIONS = ['entries', 'courses', 'rounds', 'analyses', 'tips', 'checklist'];
 
   async function runSync() {
     // A save that lands while a sync is already in flight must still get
@@ -2538,6 +2754,7 @@
       saveLocal();
       renderEntries(); renderCourses(); renderRounds();
       renderAllCoachTips(); renderTipsManage();   // tips edited on another device
+      renderChecklist();                          // bag check edited elsewhere
 
       // 3. Push merged arrays back (upsert + prune, per collection).
       for (const cname of SYNC_COLLECTIONS) {
@@ -2655,7 +2872,8 @@
       courses: mergeById(local.courses, remote.courses),
       rounds: mergeById(local.rounds, remote.rounds),
       analyses: mergeById(local.analyses, remote.analyses),
-      tips: mergeById(local.tips, remote.tips)
+      tips: mergeById(local.tips, remote.tips),
+      checklist: mergeById(local.checklist, remote.checklist)
     };
   }
 
@@ -2697,6 +2915,7 @@
       const id = ev.currentTarget.id;
       if (id === 'entry-modal') closeEntryForm();
       else if (id === 'tip-modal') closeTipEditor();
+      else if (id === 'bag-modal') closeBagEditor();
       else if (id === 'organize-modal') closeOrganize();
       else if (id === 'ask-modal') closeAsk();
       else if (id === 'sync-modal') closeSyncSettings();
@@ -2713,6 +2932,8 @@
     // Seed the Coach tips from the built-in pages BEFORE rendering, since the
     // seed is read out of that very markup and rendering replaces it.
     migrateCoachTipsOnce();
+    seedChecklistOnce();
+    renderChecklist();
     renderAllCoachTips();
     renderTipsManage();
     renderEntries();
@@ -3247,7 +3468,7 @@
   // User-facing semantic version (MAJOR.MINOR.PATCH). This is what shows in Settings,
   // the update prompts, and the footers - a real version, not a build date. Bump it on
   // every deploy: PATCH for a fix, MINOR for a feature, MAJOR for a big milestone.
-  const APP_VERSION = "1.21.0";
+  const APP_VERSION = "1.22.0";
   // Internal build stamp. Bump on every deploy too (today's date + a counter). This is
   // what the updater actually COMPARES (it's monotonic, so detection never misfires) and
   // what cache-busts the reload; APP_VERSION above is the friendly label shown to users.
@@ -4598,6 +4819,7 @@
     document.getElementById('play-date').value = playRound.date;
     refreshPlayTees();
     renderPlayHole();
+    renderPlayBagBanner();
     document.getElementById('play-modal').classList.add('visible');
   }
   function closePlay() {
@@ -5005,6 +5227,26 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="bag-modal" onclick="closeOnBackdrop(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Edit item</h3>
+      <button class="modal-close" onclick="closeBagEditor()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <label>Item</label>
+      <input type="text" id="bag-edit-text" placeholder="e.g. Rangefinder">
+    </div>
+    <div class="modal-footer">
+      <button class="btn-danger" onclick="deleteBagItem()">Delete</button>
+      <div class="modal-footer-right">
+        <button class="btn-secondary" onclick="closeBagEditor()">Cancel</button>
+        <button class="btn-primary" onclick="saveBagItem()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="tip-modal" onclick="closeOnBackdrop(event)">
   <div class="modal" onclick="event.stopPropagation()">
     <div class="modal-header">
@@ -5256,6 +5498,7 @@
       <button class="modal-close" onclick="closePlay()">&times;</button>
     </div>
     <div class="modal-body">
+      <div id="play-bagcheck" class="play-bag-banner" style="display:none"></div>
       <div class="scan-row">
         <select id="play-course" onchange="onPlayCourseChange()" style="flex:1;min-width:140px;"></select>
         <select id="play-tee" onchange="onPlayTeeChange()" style="width:auto;"></select>
