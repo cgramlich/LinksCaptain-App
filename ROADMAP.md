@@ -1,105 +1,118 @@
 # LinksCaptain — Roadmap & Cleanup
 
-App brand: **LinksCaptain** (a **Salty Tee Box** product). Studio + app model,
-mirroring the Menu Captain family. The pirate-skull logo and green/gold palette
-are the house identity and stay.
+App brand: **LinksCaptain** (a **Salty Tee Box** product), part of the Forever
+Apps portfolio. The pirate-skull logo and green/gold palette are the house
+identity and stay.
 
 Live at **https://linkscaptain.com** (GitHub Pages + custom domain, HTTPS on).
+API at **https://api.linkscaptain.com**.
+
+Current versions are deliberately not written here — read `APP_VERSION` and
+`BUILD` in `index.html`, and the backend's `/` health payload.
 
 ## Repos
 
-- **`LinksCaptain-App`** — this repo, the front-end PWA (renamed from `Golf-Dashboard`).
-- **`LinksCaptain-Cloud`** — the backend API (future; does not exist yet).
-  FastAPI + Supabase + server-side Anthropic. Successor to the `golf-data` sync.
-- **`golf-data`** — today's sync store (one `data.json`). **Not renamed** — it is
-  slated to be *retired* once data moves into Supabase (see Phase 4), so renaming
-  it would be churn and would force re-pointing the in-app sync config per device.
+- **`LinksCaptain-App`** — the front-end PWA. One self-contained `index.html`
+  (vanilla JS, no build step) plus `sw.js`, icons, and `CNAME`. Pushing `main`
+  redeploys Pages.
+- **`LinksCaptain-Cloud`** — the backend. FastAPI + Supabase + a server-side
+  Anthropic relay, on Railway. Supabase project `paabwedpsgzfvninhyov`.
+- **`golf-data`** — the retired GitHub `data.json` sync store. Superseded by
+  Phase 4; kept only as a cold backup.
 
-## Architecture direction
+## Architecture
 
-Aligning with the Menu Captain (`dining-log-app` + `dining-captain-backend`)
-production pattern, minus commerce/store for now:
-
-- **Front-end:** installable PWA (`LinksCaptain-App`), served from the custom domain.
-- **Backend (future):** `LinksCaptain-Cloud` — FastAPI + Supabase (Postgres + JWT
-  auth), server-side Anthropic relay. Its own separate infra (new Supabase project
-  + hosting), not shared with Menu Captain.
-- **Stripe / app stores:** structure stubbed/disabled for now (entitlement layer
-  hardwired to unlimited, à la Menu Captain's `/api/entitlement` "pro" stub), no
-  store-listing pages yet.
+- **Front-end:** installable PWA served from the custom domain.
+- **Backend:** FastAPI + Supabase (Postgres + JWT auth). Every collection is
+  one table, `(user_id, id)` keyed, RLS enabled with **no** policies so only the
+  service_role backend can reach the data. Collections: `entries`, `courses`,
+  `rounds`, `analyses`, `tips`, `checklist`.
+- **AI:** all calls go through `/api/ai/relay` on the server key, metered by a
+  per-user monthly call cap and a global spend circuit breaker.
+- **Stripe / app stores:** deliberately not started. Entitlement is stubbed to
+  "pro" behind a seam so billing can land later without a rewrite.
 
 ## Phases
 
-- [x] **Phase 1 — PWA shell parity.** manifest.json, service worker (sw.js),
-  real icon set. Keeps the existing GitHub `data.json` sync.
-- [x] **Rebrand to LinksCaptain.** All in-app brand touchpoints + manifest.
-- [x] **Custom domain.** `linkscaptain.com` on GitHub Pages (DNS at Porkbun,
-  `CNAME` file, Enforce HTTPS). Confirmed installable over HTTPS.
-- [x] **Rename front-end repo** `Golf-Dashboard` → `LinksCaptain-App`. Domain
-  insulated the URL; no functional code changes were needed.
-- [ ] **Phase 2 — backend.** Stand up `LinksCaptain-Cloud` (FastAPI + Supabase),
-  golf schema (entries/courses/rounds/analyses), entitlement stub. **Needs infra
-  first:** a new Supabase project + a hosting account (Railway or Render).
-- [~] **Phase 3 — server-side AI + authed sync.**
-  - [x] **Authed sync (v1.12.0).** `runSync` now pulls/pushes the four
-    collections via `GET/PUT /api/collection/{name}` with the Supabase bearer
-    token, gated on being signed in. The GitHub path is demoted to a one-time
-    `githubImportOnce` (reachable from the old Sync modal) so existing data can
-    be pulled off `data.json` into local state, from where it pushes up.
-  - [x] **AI relay (v1.13.0).** The three browser Anthropic calls
-    (`callAnthropic`, `callAnthropicChat`, `callAnthropicVision`) now route
-    through `aiRelay()` → `/api/ai/relay` with the Supabase token; the
-    Anthropic key box is removed and AI is gated on being signed in. Backend
-    `ALLOWED_MODELS`/`DEFAULT_MODEL` bumped to `claude-sonnet-5` (backend
-    v0.2.0). AI cost now runs on the server key. The AI Settings modal is a
-    model picker only.
-- [ ] **Phase 4 — data migration.** No script needed: on the primary device
-  (which already holds the full log locally), sign in → `runSync` sees an empty
-  backend, merges (local wins), and pushes everything up. Do one final GitHub
-  import first to be sure local is complete, then retire the `golf-data` path.
-- [ ] **Phase 5 — on-course GPS rangefinder.** Precise distances while playing:
-  distance to the **center** (and front/back) of the green, and carry distances
-  to hazards (bunkers, water), plus "which hole am I on." This needs surveyed
-  green + hazard coordinates, which our scorecard API does **not** have.
+- [x] **Phase 1 — PWA shell parity.** manifest, service worker, real icon set.
+- [x] **Rebrand to LinksCaptain**, custom domain, front-end repo rename.
+- [x] **Phase 2 — backend.** `LinksCaptain-Cloud` on Railway + Supabase, golf
+  schema, entitlement stub.
+- [x] **Phase 3 — server-side AI + authed sync.** Sync moved off the GitHub PAT
+  onto `GET/PUT /api/collection/{name}` with a Supabase bearer token, and all
+  three Anthropic calls moved behind `/api/ai/relay`. The app is **keyless**:
+  the only setup is signing in. The old GitHub path survives as a one-time
+  importer behind Settings → Import old data.
+- [x] **Phase 4 — data migration.** The full log was imported from `golf-data`
+  and pushed to Supabase. `golf-data` is now redundant.
+- [ ] **Phase 5 — on-course GPS rangefinder.** Distance to the front, centre and
+  back of the green, carries to hazards, and which hole you are on. See the
+  data-source section below: this is blocked on a decision, not on code.
 
-## Data providers (decided)
+## Course data: the finding that shapes Phase 5
 
-Layered, with a clear fallback order — the app should degrade gracefully, never
-dead-end:
+Commercial golf GPS data is priced for businesses, not for one player:
 
-- **Green / hazard / hole GPS coordinates → paid provider (primary).** Trialing
-  **Golf Intelligence** (green centers + hazards + tee boxes, rangefinder-focused,
-  free 200-credit test tier); **golfapi.io** is the value alternative that also
-  bundles scorecards. Chosen on which one actually has *our* courses mapped.
-- **Scorecards (par / stroke index / yardage) → paid provider first, then
-  GolfCourseAPI as fallback.** If the paid GPS provider also serves the scorecard
-  (golfapi.io / Golf Intelligence do), use it so hole numbers line up with the GPS
-  data; if it's missing a course's card, fall back to **GolfCourseAPI** (kept, free).
-- **Nearby course list + rough hole detection → OpenStreetMap / Overpass (free).**
-  Unchanged. The paid provider can later supersede "detect hole" once its data is
-  in place.
-- **Cost control:** fetch a course's geometry **once, cache it in Supabase**, and
-  compute live distances server/client-side from the stored coords + phone GPS —
-  so the paid API is hit ~once per course, not per shot. Keeps spend at pennies for
-  a single-user app and argues for optimizing on data quality, not price.
+- **Golf Intelligence** — paid plans start around **$399/month**; the free tier
+  is 200 one-time credits, enough to evaluate and nothing more.
+- **iGolf** and **GolfLogix** — the most accurate providers (surveyed
+  front/centre/back pins, tee boxes, hazards) sell through enterprise
+  **licensing**, not self-serve pricing.
 
-## Potential upgrades (parked)
+At roughly $4,800/year for a single-user app, buying the data is not sensible.
+The recommended path instead:
 
-- **Paid / self-hosted Overpass for "Near me".** Today the nearby-courses search
-  races several free public Overpass mirrors (volunteer copies of the OSM query
-  service). The fix in place (prefer a mirror that actually returns courses,
-  ignore fast-but-empty answers) makes this reliable, but the mirrors are still
-  third-party and best-effort. If they get flaky, the clean escape hatch is a
-  **paid Overpass/geo provider** (a few $/mo, guaranteed uptime + complete data,
-  no mirror roulette) or **self-hosting** our own Overpass/PostGIS instance
-  (full control, but real infra: ~150 GB planet dump, a bigger server, and
-  keeping it updated). Paid provider is the pragmatic middle option.
+1. **OpenStreetMap via Overpass (free, already wired).** `/api/golf/holes`
+   already returns a tee point and a green point per hole, and already powers
+   hole detection. That is enough for a working distance-to-green readout today.
+2. **Pin your own greens, once per course.** OSM gives roughly one green point,
+   not front/centre/back. Since the set of courses actually played is small, a
+   one-time "tap the green on satellite imagery" step per course, cached in
+   Supabase, produces genuinely accurate yardages, costs nothing, never expires,
+   and covers the part OSM cannot.
+3. **Label honestly.** A wrong yardage is worse than none, so the readout must
+   distinguish a green you pinned from an OSM approximation, and must never
+   present a guess as precision.
 
-## Notes / open items
+Scorecards stay on **GolfCourseAPI** (free tier, already integrated). Nearby
+course search stays on **OSM/Overpass**.
 
-- **Home-screen cutover:** re-add the app to the phone home screen from
-  `linkscaptain.com` so the installed PWA lives on the stable domain (and picks
-  up the new LinksCaptain icon). The old `*.github.io/LinksCaptain-App/` URL keeps
-  working via GitHub's redirect.
-- **Default AI model** in the app is `claude-sonnet-4-6` — worth confirming it is
-  still a current model id (Opus/Haiku ids looked current).
+## Shipped since the backend cutover
+
+- Keyless sign-in, cloud sync, and the AI relay (Phase 3).
+- **Round** entry type, so playing sits in the timeline beside lessons, range
+  sessions and thoughts.
+- **Ask your log** — natural-language questions answered against the log,
+  honouring entry types, date ranges and counts.
+- **Organize notes** — paste freeform notes and have them filed into typed
+  entries, reviewed before saving. Dates are never invented.
+- **Auto-saved analyses** plus a Coach "Past analyses" screen, so AI coaching is
+  a running record rather than whatever was remembered to be saved.
+- **Editable Coach tips.** The reference pages were hardcoded; tips are now data
+  with a real source (who said it, which platform, the URL), editable inline and
+  organizable by source on a Manage tips screen. Fix My Shot stays a hardcoded
+  interactive tool on purpose.
+- **Bag check** — the pre-round checklist, with a non-blocking nudge on Play.
+
+## Open items
+
+- **Phase 5**, pending the go-ahead on the OSM-plus-pinned-greens approach.
+- **Retire `golf-data`** now that Supabase holds the data.
+- **Paid or self-hosted Overpass** if the free mirrors get flaky. The current
+  fix (prefer a mirror that actually returns courses, ignore fast-but-empty
+  answers) is holding, so this stays parked.
+
+## Release ritual
+
+Bump **`APP_VERSION`**, **`BUILD`**, and **`sw.js` VERSION together** on every
+deploy, then push `main`.
+
+`BUILD` is the one that matters most and the one most easily forgotten: the
+in-app updater compares the deployed `BUILD` against the running one, so if
+`BUILD` does not advance, the "Update available — tap to refresh" banner never
+appears and installed users sit on a stale build until they refresh by hand.
+This actually happened here across six releases, which is why it is called out.
+
+Note the pre-push audit's version-lockstep check does **not** catch it: it
+passes when `sw.js` agrees with `APP_VERSION` *or* `BUILD`, so bumping
+APP_VERSION and sw.js together stays green while `BUILD` rots.
