@@ -3153,7 +3153,9 @@
     lines.push('Be direct and specific. Real drills, not cliches. Keep it tight.');
 
     const title = 'Entry: ' + (entry.title || entry.date) + (includeHistory ? ' (in context)' : '');
-    startConversation(lines.join('\n'), title, 'entry');
+    // Same output budget as the whole-log analysis: this prompt asks for the
+    // same shape of answer, and with 'in context' it carries the whole log too.
+    startConversation(lines.join('\n'), title, 'entry', 4096);
   }
 
   // ---------- Whole-log analysis ----------
@@ -3468,11 +3470,11 @@
   // User-facing semantic version (MAJOR.MINOR.PATCH). This is what shows in Settings,
   // the update prompts, and the footers - a real version, not a build date. Bump it on
   // every deploy: PATCH for a fix, MINOR for a feature, MAJOR for a big milestone.
-  const APP_VERSION = "1.22.1";
+  const APP_VERSION = "1.22.2";
   // Internal build stamp. Bump on every deploy too (today's date + a counter). This is
   // what the updater actually COMPARES (it's monotonic, so detection never misfires) and
   // what cache-busts the reload; APP_VERSION above is the friendly label shown to users.
-  const BUILD = "2026-08-24.1";
+  const BUILD = "2026-08-25.1";
   // Compare two build stamps of the form "YYYY-MM-DD.N". A plain string compare is wrong
   // (the counter isn't zero-padded, so ".11" < ".9" lexically); split on - and . into
   // numeric fields and compare left to right. True iff `a` is strictly newer than `b`.
@@ -3746,8 +3748,10 @@
         // Succeeded but the model returned no text - surface WHY instead of a blank bubble.
         const why = (res && res.stop_reason) || 'unknown';
         logDiag('AI empty reply; stop_reason=' + why);
-        renderConversation(false, 'The model returned no text (reason: ' + why +
-          '). If this was Analyze all with a long log, try again — it now has more room.');
+        const hint = (why === 'max_tokens')
+          ? 'It ran out of output room before writing anything. Try again, and if it keeps happening the entry is probably very long.'
+          : 'Try again in a moment.';
+        renderConversation(false, 'The coach did not return an answer (' + why + '). ' + hint);
         return;
       }
       activeConvo.messages.push({ role: 'assistant', content: reply });
