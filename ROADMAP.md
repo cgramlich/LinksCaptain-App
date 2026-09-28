@@ -62,17 +62,25 @@ Commercial golf GPS data is priced for businesses, not for one player:
 At roughly $4,800/year for a single-user app, buying the data is not sensible.
 The recommended path instead:
 
-1. **OpenStreetMap via Overpass (free, already wired).** `/api/golf/holes`
-   already returns a tee point and a green point per hole, and already powers
-   hole detection. That is enough for a working distance-to-green readout today.
-2. **Pin your own greens, once per course.** OSM gives roughly one green point,
-   not front/centre/back. Since the set of courses actually played is small, a
-   one-time "tap the green on satellite imagery" step per course, cached in
-   Supabase, produces genuinely accurate yardages, costs nothing, never expires,
-   and covers the part OSM cannot.
-3. **Label honestly.** A wrong yardage is worse than none, so the readout must
-   distinguish a green you pinned from an OSM approximation, and must never
-   present a guess as precision.
+1. **OpenStreetMap via Overpass (free, already wired).** Far richer than this
+   document previously claimed. Measured at River Crossing Club on 2026-09-06:
+   19 greens as **polygons**, 18 **pin positions**, 51 bunkers, 19 fairways,
+   104 tee boxes, and both water hazards, all as real shapes rather than single
+   points. Every hole carried its par. Across the wider San Antonio and Hill
+   Country area the same query returned 592 green polygons, 484 pins and 1,428
+   bunkers, roughly thirty fully mapped courses.
+2. **Front, centre and back are computed, not bought or hand-placed.** Because
+   the green is a polygon, its near and far edges relative to the approach
+   bearing are arithmetic. Carry and clear numbers for every bunker come from
+   the bunker polygons the same way.
+3. **Hand-pinning is a fallback, not the plan.** An earlier version of this
+   document said OSM gives roughly one green point and that each green would
+   therefore need tapping on satellite imagery once per course. That was wrong:
+   it was inferred from only ever querying hole centrelines. The manual step is
+   now only for courses that turn out to be poorly mapped.
+4. **Label honestly.** Coverage varies by course and OSM can be stale or wrong,
+   so the readout must distinguish a computed distance from a rough one and
+   must never present a guess as precision. A wrong yardage is worse than none.
 
 Scorecards stay on **GolfCourseAPI** (free tier, already integrated). Nearby
 course search stays on **OSM/Overpass**.
@@ -96,7 +104,7 @@ course search stays on **OSM/Overpass**.
 
 ## Open items
 
-- **Phase 5**, pending the go-ahead on the OSM-plus-pinned-greens approach.
+- **Phase 5**, pending the go-ahead on the OpenStreetMap-plus-lidar approach.
 - **Retire `golf-data`** now that Supabase holds the data.
 - **Paid or self-hosted Overpass** if the free mirrors get flaky. The current
   fix (prefer a mirror that actually returns courses, ignore fast-but-empty

@@ -95,7 +95,10 @@ Each is true and survives a follow-up question.
 - "153 tips moved into a queryable form without a word being retyped — the
   migration read the old pages instead of transcribing them."
 - "The data that would make the marquee feature possible starts at $399 a month.
-  The app serves one player. So we didn't buy it — we pinned the greens by hand."
+  The app serves one player. So we didn't buy it — the open map already had the
+  greens, the bunkers and the pins."
+- "One course returned 19 green outlines, 18 pin positions and 51 bunkers from
+  free public map data, and they line up with the aerial photograph."
 - "Every tip now records who said it, where it came from, and the link — so the
   library can be organised by source instead of by whatever the sentence
   happened to say."
@@ -175,5 +178,10 @@ better teaching material than any success.
 - **Do not claim the bag-check cloud sync is verified.** It is built and the
   database table exists, but an end-to-end confirmation across two devices has
   not been done.
-- **Do not describe hand-pinned green positions as survey-grade.** They are
-  accurate enough for the courses played and are labelled as user-placed.
+- **Do not claim every course is mapped this well.** One course was measured in
+  detail and one region counted; national coverage was not surveyed, and OSM can
+  be stale or wrong. Say "measured at one course on 2026-09-06", not "courses
+  are mapped".
+- **Do not call computed green distances survey-grade.** They derive from
+  community-mapped outlines, which is good enough to play from and not the same
+  as a licensed survey.

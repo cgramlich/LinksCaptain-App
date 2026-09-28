@@ -128,11 +128,21 @@ sync path.
 **Do not buy course GPS data — 2026-08-24.** Commercial providers start around
 **$399/month** (Golf Intelligence), and the accurate ones (iGolf, GolfLogix)
 sell through enterprise licensing. For a single-user app that is indefensible.
-*Chosen instead:* OpenStreetMap via Overpass for hole geometry (already wired
-and free), plus a future one-time "pin the green on satellite imagery" step per
-course cached in Supabase. Accuracy must be labelled honestly — a pinned green
-and an OSM approximation are not the same thing, and a wrong yardage is worse
-than none. Full reasoning in `ROADMAP.md`.
+*Chosen instead:* OpenStreetMap via Overpass, which is free and already wired.
+**Corrected 2026-09-06:** this entry used to say OSM gives roughly one green
+point and that greens would need hand-placing on satellite imagery. That was
+wrong, and it was wrong because only hole centrelines had ever been queried.
+Measured at River Crossing Club: greens, bunkers, fairways, tee boxes and water
+all come as polygons, plus explicit pin positions, so front/centre/back and
+carry distances are computed rather than bought or tapped in. Hand-pinning
+survives only as a fallback for poorly mapped courses. Coverage still varies, so
+accuracy must be labelled honestly and a wrong yardage is worse than none. Full
+reasoning in `ROADMAP.md`.
+
+Also proven on 2026-09-06: **USGS 3DEP lidar** (1 m, public domain) returned
+54.6 m of relief across that course, and **USDA NAIP aerial imagery** (~0.9 m,
+public domain) registered against the OSM polygons. Elevation-aware distances
+and photoreal renders both rest on free data.
 
 **Icon deliberately breaks the family pattern — 2026-07-12.** Siblings put a
 flat glyph inside a badge circle. LinksCaptain has **no badge** and uses a
@@ -223,7 +233,7 @@ Hard-refresh before concluding an account is missing.
 **Blocked on Chris**
 
 - **Phase 5, the on-course GPS rangefinder.** Needs a yes/no on the
-  OSM-plus-self-pinned-greens approach in `ROADMAP.md`. Not blocked on code.
+  OpenStreetMap-plus-lidar approach in `ROADMAP.md`. Not blocked on code.
 - **Adding a real `BUILD` check to `portfolio-audit`.** Would prevent the trap
   above portfolio-wide, but that file is shared by 15 repos and a new check
   changes everyone's pushes.
