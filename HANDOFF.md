@@ -185,6 +185,23 @@ has a `round` entry type (journal notes from playing) and there is also a
 separate **Rounds** tab (structured scorecards and stats). The name collision
 was considered and accepted; they are different tools for different jobs.
 
+**Function EXECUTE revoked from the public roles — 2026-10-03.** Row level
+security covers TABLES, not FUNCTIONS, and Postgres grants EXECUTE on every new
+function to PUBLIC. Anyone holding the app's public key could therefore call
+`record_ai_usage` over `/rest/v1/rpc`, inflate `system_meter`, and trip the AI
+budget breaker so AI switched off for every user. Found portfolio-wide by the
+FitnessCaptain session on 2026-09-28; confirmed present here and **closed on the
+live database on 2026-10-03** (migration `revoke_record_ai_usage_from_anon`),
+verified as anon false, authenticated false, service_role true. The same
+statements are now in `sql/schema.sql` so a rebuild starts locked.
+*Road not taken:* revoking function by function. A blanket revoke is safe **only
+because no browser code calls a function** — the frontend was checked for
+`.rpc(` and `/rest/v1/rpc` and has neither. An app whose browser calls one must
+revoke by name instead. The matching `grant ... to service_role` is **not
+optional**: if the revoke takes the backend's access too, nothing errors,
+because the metering callers log and swallow by design, so the counters stop
+silently and the breaker never fires again.
+
 **RLS enabled with no policies, on every table.** The backend uses the
 service_role key, which bypasses RLS. No anon or authenticated policies exist
 on purpose, so the public anon key cannot reach data directly. This is a
@@ -208,6 +225,15 @@ version-lockstep check passes when `sw.js` agrees with `APP_VERSION` *or*
 **A new Supabase table returns 500 / `42501` until it is granted.** Adding a
 collection means adding the table, enabling RLS, **and** `grant all on <table>
 to service_role`. Both `tips` and `checklist` needed this.
+
+**A new FUNCTION is world-callable the moment it is created.** Postgres grants
+EXECUTE to PUBLIC by default and RLS does not cover it, so a function added
+later reopens the hole closed on 2026-10-03 unless the revoke is re-run. The
+default-privilege lines in `sql/schema.sql` handle this for anything created
+afterwards; verify with:
+`select p.proname, has_function_privilege('anon', p.oid, 'execute'), has_function_privilege('service_role', p.oid, 'execute') from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public';`
+Expect anon false and service_role true on every row. Checking anon alone misses
+the worse failure, where the backend lost access and metering died quietly.
 
 **A modal over the fixed bottom nav reads as "the button is broken".**
 *Incident, 2026-08-25:* Chris reported the Log button dead. It was not — a
