@@ -44,6 +44,11 @@ around a proper backend and then pushed well past parity:
   entry types, date ranges and counts you named.
 - Freeform notes gained an inbox: paste a wall of text and it is filed into
   correctly typed, dated entries for review before anything is saved.
+- Dictation got a copy editor. Notes spoken into the phone after a lesson are
+  cleaned up in one tap: punctuation, sentence breaks and spoken filler go, and
+  **every cue, number and name stays, in the golfer's own words**. The model is
+  told to edit, never to paraphrase or summarise, and the original is one tap
+  away under Undo (2026-10-05).
 
 **What it means now.** A single-player app, built and maintained conversationally,
 that does things the subscription products do not: it answers questions about

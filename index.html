@@ -375,6 +375,30 @@
   .btn-danger { background: var(--error-red); color: white; flex: 0 0 auto; padding: 10px 14px; }
   .btn-primary:hover, .btn-secondary:hover, .btn-danger:hover { transform: translateY(-1px); }
 
+  /* A field label with its own small actions on the right, so an action that
+     belongs to one field (Tidy up on Notes) sits beside it instead of in the
+     modal footer, where it would read as applying to the whole entry. */
+  .field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .field-head label { margin: 0; }
+  .field-head-actions { display: flex; gap: 6px; }
+  .btn-tiny {
+    flex: 0 0 auto;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+    color: var(--ink);
+    border-radius: 9px;
+    padding: 5px 10px;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 700;
+    font-size: 0.72rem;
+    cursor: pointer;
+  }
+  .btn-tiny:disabled { opacity: 0.55; cursor: default; }
+  /* Status line under a field. Errors land HERE rather than in alert() or a
+     modal: a v1.22.2 bug was an error dialog covering the bottom nav, which
+     read to the user as the Log button being broken. */
+  .field-note { font-size: 0.72rem; color: var(--ink-soft); margin-top: 6px; min-height: 0.9rem; }
+
   .search-box {
     width: 100%;
     padding: 11px 14px;
@@ -2211,6 +2235,7 @@
       document.getElementById('entry-instructor').value = '';
       document.getElementById('entry-delete-btn').style.display = 'none';
     }
+    resetTidy();
     onEntryTypeChange();
     document.getElementById('entry-modal').classList.add('visible');
   }
@@ -3048,6 +3073,92 @@
     return ((await aiRelay(body)).text || '').trim();
   }
 
+  // ---------- Tidy up a dictated note ----------
+  // Sessions get dictated into the phone in the car park, so the body arrives
+  // as one unpunctuated block. This runs one AI pass over it to make it
+  // readable, in place, before saving.
+  //
+  // It is an EDITOR, not a coach: the note is often the only record of what a
+  // teacher actually said, and a paraphrase would quietly replace his words
+  // with the model's. So the prompt forbids summarising, adding advice and
+  // dropping any cue, number or name, and the pre-tidy text is held in memory
+  // so Undo is one tap away. Analyze is where coaching belongs.
+  let tidyBefore = null;
+
+  const TIDY_SYSTEM =
+    'You clean up a golfer\'s own dictated notes so they read clearly. ' +
+    'You are a copy editor, NOT a coach. RULES: ' +
+    '- Keep his own words, phrasing and voice. Do not rewrite them into yours. ' +
+    '- Fix punctuation, capitalisation, sentence breaks and obvious speech-to-text slips. ' +
+    '- Strip dictation litter: filler words, false starts, and the same sentence restarted. ' +
+    '- Turn spoken punctuation into real punctuation (the words "period", "comma", "new paragraph"). ' +
+    '- Keep EVERY piece of content: every cue, drill, number, club, distance, name and observation. Dropping one is a failure. ' +
+    '- Tighten only by removing repetition. Never summarise, never shorten a thought. ' +
+    '- Add NOTHING: no advice, no interpretation, no sign-off, no headings he did not imply. ' +
+    '- Keep his order. Use short paragraphs, and simple hyphen bullets where he was clearly listing. ' +
+    '- If a word is garbled beyond recognition, leave it exactly as it is rather than guessing at it. ' +
+    'Return ONLY the cleaned-up notes as plain text: no preamble, no commentary, no code fences.';
+
+  function setTidyNote(msg, isError) {
+    const el = document.getElementById('entry-tidy-note');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.style.color = isError ? 'var(--error-red)' : 'var(--ink-soft)';
+  }
+
+  // Called whenever the form opens, so an Undo can never reach across entries
+  // and overwrite a different note with the previous one's text.
+  function resetTidy() {
+    tidyBefore = null;
+    setTidyNote('');
+    const u = document.getElementById('entry-undo-btn');
+    if (u) u.style.display = 'none';
+  }
+
+  async function tidyEntryBody() {
+    const ta = document.getElementById('entry-body');
+    const original = ta.value.trim();
+    if (!original) { setTidyNote('Nothing to tidy yet.', true); return; }
+    if (!aiReady()) { setTidyNote('Sign in to use AI (Settings then Account).', true); return; }
+
+    const btn = document.getElementById('entry-tidy-btn');
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Tidying...';
+    setTidyNote('Cleaning up your notes...');
+    try {
+      const r = await aiRelay({
+        model: getAIConfig().model,
+        max_tokens: 4000,
+        system: TIDY_SYSTEM,
+        messages: [{ role: 'user', content: original }]
+      });
+      const cleaned = (r.text || '').trim();
+      // A truncated reply would hand back notes with the end silently cut off,
+      // which is worse than no tidy at all -- so refuse it instead of pasting it.
+      if (r.stop_reason === 'max_tokens') {
+        throw new Error('These notes are too long to tidy in one pass. Split them and try again.');
+      }
+      if (!cleaned) throw new Error('AI returned nothing. Try again.');
+      tidyBefore = ta.value;
+      ta.value = cleaned;
+      document.getElementById('entry-undo-btn').style.display = 'inline-block';
+      setTidyNote('Tidied. Check it reads right. Undo puts your original back.');
+    } catch (e) {
+      setTidyNote(e.message, true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  }
+
+  function undoTidy() {
+    if (tidyBefore === null) return;
+    document.getElementById('entry-body').value = tidyBefore;
+    resetTidy();
+    setTidyNote('Original restored.');
+  }
+
   // ---------- Per-entry analysis ----------
   // Triggered from the Analyze button in the entry-modal footer. We capture
   // the form contents first (so they aren't lost when the modal closes),
@@ -3470,11 +3581,11 @@
   // User-facing semantic version (MAJOR.MINOR.PATCH). This is what shows in Settings,
   // the update prompts, and the footers - a real version, not a build date. Bump it on
   // every deploy: PATCH for a fix, MINOR for a feature, MAJOR for a big milestone.
-  const APP_VERSION = "1.22.2";
+  const APP_VERSION = "1.23.0";
   // Internal build stamp. Bump on every deploy too (today's date + a counter). This is
   // what the updater actually COMPARES (it's monotonic, so detection never misfires) and
   // what cache-busts the reload; APP_VERSION above is the friendly label shown to users.
-  const BUILD = "2026-08-25.1";
+  const BUILD = "2026-10-05.1";
   // Compare two build stamps of the form "YYYY-MM-DD.N". A plain string compare is wrong
   // (the counter isn't zero-padded, so ".11" < ".9" lexically); split on - and . into
   // numeric fields and compare left to right. True iff `a` is strictly newer than `b`.
@@ -5097,8 +5208,15 @@
         <input type="text" id="entry-instructor" placeholder="Who taught you">
       </div>
 
-      <label>Notes</label>
-      <textarea id="entry-body" rows="10" placeholder="What you want to remember from this..."></textarea>
+      <div class="field-head">
+        <label>Notes</label>
+        <div class="field-head-actions">
+          <button type="button" class="btn-tiny" id="entry-undo-btn" style="display:none" onclick="undoTidy()">Undo</button>
+          <button type="button" class="btn-tiny" id="entry-tidy-btn" onclick="tidyEntryBody()">Tidy up</button>
+        </div>
+      </div>
+      <textarea id="entry-body" rows="10" placeholder="Say it or type it however it comes out. Tidy up will clean it."></textarea>
+      <div class="field-note" id="entry-tidy-note"></div>
     </div>
     <div class="modal-footer">
       <button class="btn-danger" id="entry-delete-btn" style="display:none" onclick="deleteEntry()">Delete</button>

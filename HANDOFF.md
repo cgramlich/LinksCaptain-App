@@ -18,11 +18,11 @@ several decisions below that would be wrong for a public app.
 
 ---
 
-## Current state (2026-08-28)
+## Current state (2026-10-05)
 
 | | Version | Where |
 |---|---|---|
-| Front end | `APP_VERSION` 1.22.2, `BUILD` 2026-08-25.1 | https://linkscaptain.com |
+| Front end | `APP_VERSION` 1.23.0, `BUILD` 2026-10-05.1 | https://linkscaptain.com |
 | Backend | 0.5.0 | https://api.linkscaptain.com |
 
 Both repos clean and in sync with `origin/main`. Nothing uncommitted, nothing
@@ -110,6 +110,26 @@ that gets forgotten — see the first trap.
 ---
 
 ## Decisions, dated, with the road not taken
+
+**Tidy up edits the note; it does not coach it — 2026-10-05.** Sessions get
+dictated into the phone in the car park, so the body arrives as one long
+unpunctuated block. The Tidy up button beside the Notes field runs one AI pass
+that fixes punctuation, sentence breaks and dictation litter ("um", false
+starts, the spoken words "period" and "new paragraph") and keeps his own words.
+The prompt forbids summarising, adding advice and dropping any cue, number or
+name, because a lesson note is often the only record of what a teacher actually
+said and a paraphrase would quietly swap his words for the model's. Coaching
+stays in Analyze, where it is clearly the model talking.
+*Road not taken:* a review screen showing the before and after side by side.
+On a phone that is two screens of reading to approve a punctuation fix. Instead
+the text is replaced in place and the pre-tidy version is held in memory, so
+**Undo** is one tap and restores it byte for byte. The hold is cleared in
+`resetTidy()` every time the form opens, so an Undo can never reach across into
+a different entry.
+*Also refused:* a truncated reply. If the relay comes back with
+`stop_reason: "max_tokens"` the text is thrown away rather than pasted, because
+notes with the end silently cut off are worse than no tidy at all.
+
 
 **Keyless app; AI runs on the server key — 2026-07-10.** Every AI call goes
 through `/api/ai/relay` using the owner's Anthropic key, metered by a per-user
